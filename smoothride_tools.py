@@ -1,17 +1,29 @@
 # encoding: utf-8
 
 import requests as rq
+from googlemaps import GoogleMaps
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import uuid
+
+g = GoogleMaps('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s')
+
 class SmoothRide(object):
 
-    def __init__(self, filenames=None, convert=False,
+    def __init__(self, filenames=None, name=None, notes=None, convert=False,
                  param_list=None):
-        self.name = 'sr_data_' + str(np.random.random())
+        self.uuid = uuid.uuid1()
 
+        if name is None:
+            self.name = 'SR_object_' + str(self.uuid)
+        else:
+            self.name = name
+
+        if notes is not None:
+            self.notes = notes
         if filenames is not None:
             self.read_data_records(filenames, convert=convert)
         else:
@@ -19,7 +31,7 @@ class SmoothRide(object):
 
 
     def __str__(self):
-        pass
+        self.describe()
 
 
     def read_data_records(self, filenames, convert=False,
@@ -53,7 +65,25 @@ class SmoothRide(object):
 
 
     def describe(self):
-        pass
+        print 'SmoothRide Object'
+        print 'Name: ', self.name
+        print 'UUID: ', self.uuid
+
+        if hasattr(self, 'notes'):
+            print 'Notes: ', self.notes
+        print '**Time**'
+        print '- start:    ', self.data.index[0]
+        print '- end:      ', self.data.index[-1]
+        print '- duration: ', self.data.index[-1]-self.data.index[0]
+        print '**Location**'
+        loc_start = self.data[['lat','long']][:1000].mean().round(5).tolist()
+        loc_end = self.data[['lat','long']][-1000:].mean().round(5).tolist()
+        print '- start:    ', loc_start, \
+               ', ', g.latlng_to_address(*loc_start).encode()
+        print '- end:      ', loc_end, \
+               ', ', g.latlng_to_address(*loc_end).encode()
+        print '- distance: ', '<to be implemented>'
+        print 'Data Params: ', self.data.columns.tolist()
 
 
 def _analyze_params(param_list):
