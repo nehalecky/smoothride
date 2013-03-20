@@ -1,7 +1,7 @@
 # encoding: utf-8
 
 import requests as rq
-from googlemaps import GoogleMaps
+from pygeocoder import Geocoder
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 import uuid
 
-g = GoogleMaps('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s')
+g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
 class SmoothRide(object):
 
@@ -55,13 +55,17 @@ class SmoothRide(object):
         self.data = df
                     
 
-    def label_match(self, pat, axis=1):
-        if axis == 1:
-            s = pd.Series(self.data.columns)
-            return self.data[s[s.str.contains(pat)]]
+    def label_match(self, pat, tstart=None, tend=None, axis=1):
+        if tstart is not None or tend is not None:
+            df = self.data.ix[tstart:tend]
         else:
-            s = pd.Series(self.data.index)
-            return self.data.ix[s[s.str.contains(pat)]]
+            df = self.data
+        if axis == 1:
+            s = pd.Series(df.columns)
+            return df[s[s.str.contains(pat, case=False)]]
+        else:
+            s = pd.Series(df.index)
+            return df.ix[s[s.str.contains(pat, case=False)]]
 
 
     def describe(self):
@@ -78,12 +82,53 @@ class SmoothRide(object):
         print '**Location**'
         loc_start = self.data[['lat','long']][:1000].mean().round(5).tolist()
         loc_end = self.data[['lat','long']][-1000:].mean().round(5).tolist()
-        print '- start:    ', loc_start, \
-               ', ', g.latlng_to_address(*loc_start).encode()
-        print '- end:      ', loc_end, \
-               ', ', g.latlng_to_address(*loc_end).encode()
+        print '- start:    ', loc_start, #\
+               #', ', g.reverse_geocode(*loc_start)
+        print '- end:      ', loc_end, #\
+               #', ', g.reverse_geocode(*loc_end)
         print '- distance: ', '<to be implemented>'
         print 'Data Params: ', self.data.columns.tolist()
+
+
+    def quick_plots(self, tstart=None, tend=None,
+                    c=['g', 'r', 'b'], param_list=None, **kwargs):
+        fs = (15,4)
+        if param_list is None:
+            #param_list = _analyze_params(self.data.columns)
+            param_list=['Acceleration', 'Rotation']
+        #Vector parameters
+        for p in param_list:
+            plt.figure(figsize=fs)
+            ax = self.label_match(p, tstart, tend).plot(figsize=fs,
+                                     color=c, grid=True,
+                                     title=p,
+                                     alpha=0.5,
+                                     **kwargs)
+            ax.set_ylabel(p)
+
+        #Scalar
+        param_list = ['Speed', 'Alt']
+        colors = ['b', 'r']
+        for p, c in zip(param_list, colors):
+            plt.figure(figsize=fs)
+            ax = self.label_match(p, tstart, tend).plot(figsize=fs,
+                                                        color=c, grid=True,
+                                                        title=p, alpha=0.5,
+                                                        lw=3.0, **kwargs)
+            ax.set_ylabel(p)
+
+        #Postition
+        plt.figure(figsize=(12,12))
+        if tstart is not None or tend is not None :
+            df = self.data.ix[tstart:tend]
+        else:
+            df = self.data
+        ax = df.plot(x='lat', y='long',
+                            lw=5,
+                            alpha=0.5,
+                            grid=True, title='Position')
+        ax.set_ylabel('Latitude')
+        ax.set_xlabel('Longitude')
 
 
 def _analyze_params(param_list):
@@ -99,14 +144,6 @@ def _analyze_params(param_list):
                    'scalar': {'mask': scalar_mask,
                               'names': scalar_names}}
     return data_params
-    
-
-def quick_plots(self, c=['g', 'r', 'b'], param_list=None, **kwargs):
-    fs = (15,4)
-    c = ['g', 'r', 'b']
-    plt.figure(figsize=fs)
-    for p in param_list:
-        self[p].plot(figsize=fs, color=c, **kwargs)
 
 
 def _convert_timestamp(df):
