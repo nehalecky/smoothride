@@ -3,6 +3,10 @@
 import requests as rq
 from pygeocoder import Geocoder
 
+import pymongo as mgo
+from bson.binary import Binary
+import tempfile
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -90,9 +94,66 @@ class SmoothRide(object):
         print 'Data Params: ', self.data.columns.tolist()
 
 
+    def insert_rec(self):
+        """
+        Persists SmoothRide object (flight record) to remote MongoDB.
+        """
+        #Read HDF5 binary into 'memory' by creating a temporary file for writing
+        #data in 'data' DataFrame to HDF5 and converting to string.
+        #(a hack until PyTables gh-123)
+        #See: https://github.com/PyTables/PyTables/pull/173
+        temp = tempfile.NamedTemporaryFile()
+        h5store = pd.HDFStore(temp.name, complevel=9, complib='blosc')
+        h5store['data'] = self.data
+        h5store.close()
+        fileh = open(temp.name, 'r')
+        hdf5_string = fileh.read()
+        fileh.close()
+        temp.close()
+        hdf5_binary = Binary(hdf5_string)
+
+        #CREATE dict for record (eventually to be moved to 'to_dict'' method)
+        record = {'user'       : str(self.uuid),
+                  'title'      : self.name,
+                  'notes'      : self.notes,
+                  'time_start' : self.data.index[0],
+                  'time_end'   : self.data.index[-1],
+                  'loc_start'  : (self.data[['lat','long']][:1000].mean()
+                                 .round(5).tolist()),
+                  'loc_end'    : (self.data[['lat','long']][:1000].mean()
+                                 .round(5).tolist()),
+                  'params'     : self.data.columns.tolist(),
+                  'tags'       : ['test', 'car'],
+                  'data_params': self.data.columns.tolist(),
+                  'raw_data'   : hdf5_binary}
+
+        #Establish connection
+        mongo_user = 'smoothrideclass'
+        mongo_pass = 'f4vJCI2RJVQuutL'
+        mongo_db   = 'smoothride'
+        mongo_subdom = 'ds051447'
+        mongodb_loc = 'mongodb://{0}:{1}@{2}.mongolab.com:51447/{3}'
+        mongodb_loc = mongodb_loc.format(mongo_user, mongo_pass,
+                                         mongo_subdom, mongo_db)
+        conn = mgo.MongoClient(mongodb_loc)
+        #print conn.alive()
+        db = conn[mongo_db]
+
+        #Printout connection info (later to logging option)
+        print 'DB conn alive?: ', conn.alive()
+        print 'DB Details:     ', db
+        print 'DB Collections: ', db.collection_names()
+
+        #Connect to flights collection and record
+        db_collection = 'flights'
+        record_id = db[db_collection].insert(record)
+        self._id = record_id
+        return record_id
+
+
     def quick_plots(self, tstart=None, tend=None,
-                    c=['g', 'r', 'b'], param_list=None, **kwargs):
-        fs = (15,4)
+                    c=['g', 'r', 'b'], param_list=None, fs=(15,4), **kwargs):
+
         if param_list is None:
             #param_list = _analyze_params(self.data.columns)
             param_list=['Acceleration', 'Rotation']
