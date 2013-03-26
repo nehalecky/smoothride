@@ -1,9 +1,8 @@
 # encoding: utf-8
-
 import requests as rq
 from pygeocoder import Geocoder
 
-import pymongo as mgo
+import pymongo
 from bson.binary import Binary
 import tempfile
 
@@ -15,7 +14,7 @@ import uuid
 
 g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
-class SmoothRide(object):
+class FlightRecord(object):
 
     def __init__(self, filenames=None, name=None, notes=None, convert=False,
                  param_list=None):
@@ -29,7 +28,7 @@ class SmoothRide(object):
         if notes is not None:
             self.notes = notes
         if filenames is not None:
-            self.read_data_records(filenames, convert=convert)
+            self.read_raw_data(filenames, convert=convert)
         else:
             raise
 
@@ -38,11 +37,11 @@ class SmoothRide(object):
         self.describe()
 
 
-    def read_data_records(self, filenames, convert=False,
-                          param_list=None):
+    def read_raw_data(self, filenames, convert=False,
+                      param_list=None):
         """
-        Reads data recording from files listed in filenames. Populates
-        SmoothRide object with `data` attribute, containing converted
+        Reads raw data recording from files listed in filenames. Populates
+        FlightRecord object with `data` attribute, containing converted
         data set.
         """
         df = pd.DataFrame()
@@ -73,7 +72,7 @@ class SmoothRide(object):
 
 
     def describe(self):
-        print 'SmoothRide Object'
+        print 'FlightRecord Object'
         print 'Name: ', self.name
         print 'UUID: ', self.uuid
 
@@ -96,7 +95,7 @@ class SmoothRide(object):
 
     def insert_rec(self):
         """
-        Persists SmoothRide object (flight record) to remote MongoDB.
+        Persists FlightRecord object (flight record) to remote MongoDB.
         """
         #Read HDF5 binary into 'memory' by creating a temporary file for writing
         #data in 'data' DataFrame to HDF5 and converting to string.
@@ -130,19 +129,7 @@ class SmoothRide(object):
         #Establish connection
         mongo_user = 'smoothrideclass'
         mongo_pass = 'f4vJCI2RJVQuutL'
-        mongo_db   = 'smoothride'
-        mongo_subdom = 'ds051447'
-        mongodb_loc = 'mongodb://{0}:{1}@{2}.mongolab.com:51447/{3}'
-        mongodb_loc = mongodb_loc.format(mongo_user, mongo_pass,
-                                         mongo_subdom, mongo_db)
-        conn = mgo.MongoClient(mongodb_loc)
-        #print conn.alive()
-        db = conn[mongo_db]
-
-        #Printout connection info (later to logging option)
-        print 'DB conn alive?: ', conn.alive()
-        print 'DB Details:     ', db
-        print 'DB Collections: ', db.collection_names()
+        db = Database(mongo_user, mongo_pass)
 
         #Connect to flights collection and record
         db_collection = 'flights'
@@ -231,6 +218,44 @@ def _convert_timestamp(df):
     df = df.drop(['timestamp_mod'], axis=1)
 
     return df.resample('50L', fill_method='ffill')
+
+
+class Database(object):
+    """
+    Instantiates a connection with SmoothRide database allowing for standard
+    CRUD (create, read, update and delete) operations.
+    """
+
+    def __init__(self, user='testing', pwd='F14273cI886PE5g', subdom='ds051447',
+                 account_name = 'smoothride',
+                 db_loc = 'mongodb://{0}:{1}@{2}.mongolab.com:51447/{3}',
+                 db_name = 'smoothride',
+                 collection=None):
+
+        db_uri = db_loc.format(user, pwd, subdom, db_name)
+
+        self.name = db_name
+        self.loc = db_loc
+        self.subdom = subdom
+        self.user = user
+
+        try:
+            self._conn = pymongo.MongoClient(db_uri)
+            self._db = self._conn[db_name]
+        except:
+            raise
+
+
+    def __getitem__(self, collection):
+        return self._db[collection]
+
+
+    def __str__(self):
+        #is_connected = self._conn.alive()
+        output_str = ('DB Connection?: ' + str(self._conn.alive()) + '\n' +
+                      'DB Details:     ' + str(self._db) + '\n' +
+                      'DB Collections: ' + str(self._db.collection_names()))
+        return output_str
 
 
 '''
