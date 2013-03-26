@@ -4,7 +4,10 @@ from pygeocoder import Geocoder
 
 import pymongo
 from bson.binary import Binary
+from bson.objectid import ObjectId
+
 import tempfile
+import os
 
 import numpy as np
 import pandas as pd
@@ -28,12 +31,9 @@ class FlightRecord(object):
             self.name = 'SR_object_' + str(self.uuid)
         else:
             self.name = name
-
         self.notes = notes
         if filenames is not None:
             self.read_raw_data(filenames, convert=convert)
-        else:
-            raise
 
 
     def __str__(self):
@@ -59,7 +59,7 @@ class FlightRecord(object):
         #df = pd.concat(df)
 
         self.data = df
-                    
+
 
     def label_match(self, pat, tstart=None, tend=None, axis=1):
         if tstart is not None or tend is not None:
@@ -116,11 +116,22 @@ class FlightRecord(object):
         return record
 
 
-    def from_dict_record(self):
+    def from_dict_record(self, record_dict, raw_data=None):
         """
         Casts Python dict (from database query result) to FlightRecord object.
         """
-        raise  NotImplementedError
+        self.data = _df_from_h5binary(record_dict['raw_data'])
+        self.user = record_dict['user']
+        self.user = record_dict['title']
+        self.notes = record_dict['notes']
+        self.tags = record_dict['tags']
+
+
+    def load_rec(self, record):
+        """
+        Loads record dict into FlightRecord object
+        """
+        raise NotImplementedError, "To be implemented shortly...."
 
 
     def insert_rec(self):
@@ -194,14 +205,14 @@ def _df_to_h5binary(df):
     #data in 'data' DataFrame to HDF5 and converting to string.
     #(a hack until PyTables gh-123)
     #See: https://github.com/PyTables/PyTables/pull/173
-    temp = tempfile.NamedTemporaryFile()
-    h5store = pd.HDFStore(temp.name, complevel=9, complib='blosc')
+    tf = tempfile.NamedTemporaryFile()
+    h5store = pd.HDFStore(tf.name, complevel=9, complib='blosc')
     h5store['data'] = df
     h5store.close()
-    fileh = open(temp.name, 'r')
+    fileh = open(tf.name, 'r')
     hdf5_string = fileh.read()
     fileh.close()
-    temp.close()
+    tf.close()
     h5binary = Binary(hdf5_string)
     return h5binary
 
@@ -214,12 +225,13 @@ def _df_from_h5binary(h5binary):
     #data in 'data' DataFrame to HDF5 and converting to string.
     #(a hack until PyTables gh-123)
     #See: https://github.com/PyTables/PyTables/pull/173
-    temp = tempfile.NamedTemporaryFile()
-    fileh = open(temp.name, 'w')
+    tf = tempfile.NamedTemporaryFile(delete=False)
+    fileh = open(tf.name, 'w')
     fileh.write(h5binary.rstrip())
-    h5store = pd.HDFStore(temp.name)
-    df = h5store['data']
     fileh.close()
+    h5store = pd.HDFStore(tf.name)
+    os.remove(tf.name)
+    df = h5store['data']
     h5store.close()
     return df
 
@@ -343,4 +355,16 @@ class Collection(object):
             print '\n**Record**'
             print pp.pprint(post, indent=1)
 
+
+    def get_rec(self, record_id):
+        """
+        Loads a record from SmoothRide database and returns it as a
+        FlightRecord object.
+        """
+        if isinstance(record_id, str): # Convert from string to ObjectId:
+            record_id = ObjectId(record_id)
+        #Retrieve record
+        return self._coll.find_one({'_id': record_id})
+
+        #Convert to FlightRecord Object
 
