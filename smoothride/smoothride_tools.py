@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import json
+import pprint as pp
+
 import uuid
 
 g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
@@ -121,7 +124,6 @@ class FlightRecord(object):
                                  .round(5).tolist()),
                   'loc_end'    : (self.data[['lat','long']][:1000].mean()
                                  .round(5).tolist()),
-                  'params'     : self.data.columns.tolist(),
                   'tags'       : ['test', 'car'],
                   'data_params': self.data.columns.tolist(),
                   'raw_data'   : hdf5_binary}
@@ -229,8 +231,7 @@ class Database(object):
     def __init__(self, user='testing', pwd='F14273cI886PE5g', subdom='ds051447',
                  account_name = 'smoothride',
                  db_loc = 'mongodb://{0}:{1}@{2}.mongolab.com:51447/{3}',
-                 db_name = 'smoothride',
-                 collection=None):
+                 db_name = 'smoothride'):
 
         db_uri = db_loc.format(user, pwd, subdom, db_name)
 
@@ -256,6 +257,46 @@ class Database(object):
                       'DB Details:     ' + str(self._db) + '\n' +
                       'DB Collections: ' + str(self._db.collection_names()))
         return output_str
+
+
+class Collection(object):
+    """
+    Intantiates a connection to a collection in SmoothRide database.
+    """
+    def __init__(self, collection='testing', **kwargs):
+        db = Database(**kwargs)
+        self._coll = db[collection]
+
+
+    def find(self, query=None, data_projection=False):
+        """
+        Search the collection for results matching query.
+        """
+        if data_projection is True:
+            return self._coll.find(query)
+        else:
+            return self._coll.find(query, {'raw_data':0 })
+
+
+    def find_one(self, query=None, data_projection=False):
+        """
+        Search the collection for a single result  matching query.
+        """
+        if data_projection is True:
+            return self._coll.find_one(query, {'raw_data':0 })
+        else:
+            return self._coll.find_one(query)
+
+
+    def find_all(self, query=None):
+        """
+        Search the collection for ALL results matching query. (Will eventually
+        have to be chunked when db is large).
+        """
+        cursor = self.find(query)
+        for post in cursor:
+            print '\n**Record**'
+            print pp.pprint(post, indent=1)
 
 
 '''
