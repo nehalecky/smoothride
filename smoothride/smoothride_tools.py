@@ -17,6 +17,7 @@ import uuid
 
 g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
+
 class FlightRecord(object):
 
     def __init__(self, filenames=None, name=None, notes=None, convert=False,
@@ -28,8 +29,7 @@ class FlightRecord(object):
         else:
             self.name = name
 
-        if notes is not None:
-            self.notes = notes
+        self.notes = notes
         if filenames is not None:
             self.read_raw_data(filenames, convert=convert)
         else:
@@ -96,25 +96,11 @@ class FlightRecord(object):
         print 'Data Params: ', self.data.columns.tolist()
 
 
-    def insert_rec(self):
+    def to_dict_record(self, raw_data=None):
         """
-        Persists FlightRecord object (flight record) to remote MongoDB.
+        Casts FlightRecord object to Python dict to allow for database
+        insertion.
         """
-        #Read HDF5 binary into 'memory' by creating a temporary file for writing
-        #data in 'data' DataFrame to HDF5 and converting to string.
-        #(a hack until PyTables gh-123)
-        #See: https://github.com/PyTables/PyTables/pull/173
-        temp = tempfile.NamedTemporaryFile()
-        h5store = pd.HDFStore(temp.name, complevel=9, complib='blosc')
-        h5store['data'] = self.data
-        h5store.close()
-        fileh = open(temp.name, 'r')
-        hdf5_string = fileh.read()
-        fileh.close()
-        temp.close()
-        hdf5_binary = Binary(hdf5_string)
-
-        #CREATE dict for record (eventually to be moved to 'to_dict'' method)
         record = {'user'       : str(self.uuid),
                   'title'      : self.name,
                   'notes'      : self.notes,
@@ -126,7 +112,24 @@ class FlightRecord(object):
                                  .round(5).tolist()),
                   'tags'       : ['test', 'car'],
                   'data_params': self.data.columns.tolist(),
-                  'raw_data'   : hdf5_binary}
+                  'raw_data'   : raw_data}
+        return record
+
+
+    def from_dict_record(self):
+        """
+        Casts Python dict (from database query result) to FlightRecord object.
+        """
+        raise  NotImplementedError
+
+
+    def insert_rec(self):
+        """
+        Persists FlightRecord object (flight record) to remote MongoDB.
+        """
+        hdf5_binary = _df_to_h5binary(self.data)
+        #CREATE dict record
+        record = self.to_dict_record(raw_data = hdf5_binary)
 
         #Establish connection
         mongo_user = 'smoothrideclass'
@@ -179,6 +182,46 @@ class FlightRecord(object):
                             grid=True, title='Position')
         ax.set_ylabel('Latitude')
         ax.set_xlabel('Longitude')
+
+
+
+
+def _df_to_h5binary(df):
+    """
+    Converts DataFrame to HDF5 Binary
+    """
+    #Read HDF5 binary into 'memory' by creating a temporary file for writing
+    #data in 'data' DataFrame to HDF5 and converting to string.
+    #(a hack until PyTables gh-123)
+    #See: https://github.com/PyTables/PyTables/pull/173
+    temp = tempfile.NamedTemporaryFile()
+    h5store = pd.HDFStore(temp.name, complevel=9, complib='blosc')
+    h5store['data'] = df
+    h5store.close()
+    fileh = open(temp.name, 'r')
+    hdf5_string = fileh.read()
+    fileh.close()
+    temp.close()
+    h5binary = Binary(hdf5_string)
+    return h5binary
+
+
+def _df_from_h5binary(h5binary):
+    """
+    Returns DataFrame from HDF5 Binary
+    """
+    #Read HDF5 binary into 'memory' by creating a temporary file for writing
+    #data in 'data' DataFrame to HDF5 and converting to string.
+    #(a hack until PyTables gh-123)
+    #See: https://github.com/PyTables/PyTables/pull/173
+    temp = tempfile.NamedTemporaryFile()
+    fileh = open(temp.name, 'w')
+    fileh.write(h5binary.rstrip())
+    h5store = pd.HDFStore(temp.name)
+    df = h5store['data']
+    fileh.close()
+    h5store.close()
+    return df
 
 
 def _analyze_params(param_list):
@@ -270,20 +313,22 @@ class Collection(object):
 
     def find(self, query=None, data_projection=False):
         """
-        Search the collection for results matching query.
+        Search the collection for results matching query. Returns a projection
+        of the record NOT containing `raw_data` or `data_params`.
         """
         if data_projection is True:
             return self._coll.find(query)
         else:
-            return self._coll.find(query, {'raw_data':0 })
+            return self._coll.find(query, {'raw_data':0, 'data_params':0})
 
 
     def find_one(self, query=None, data_projection=False):
         """
-        Search the collection for a single result  matching query.
+        Search the collection for a single result  matching query. Returns a projection
+        of the record NOT containing `raw_data` or `data_params`.
         """
         if data_projection is True:
-            return self._coll.find_one(query, {'raw_data':0 })
+            return self._coll.find_one(query, {'raw_data':0, 'data_params':0 })
         else:
             return self._coll.find_one(query)
 
@@ -299,32 +344,3 @@ class Collection(object):
             print pp.pprint(post, indent=1)
 
 
-'''
-def temp_func(param_list):
-    #Option to restrict to param_list
-    if param_list is not None:
-        m = col_names.astype('bool')
-        m[:] = False
-        for p in param_list:
-            m = m | col_names.str.contains(p)
-            if m.all() is False:
-                print 'File does not contain any of the parameters specified!'
-                return 
-            df = df[col_names[m]]
-            col_names = pd.Series(df.columns)
-
-            data_params = _analyze_params(col_names)
-                    
-            #Build vector column list
-            col_list = []
-            vec_names = data_params['vector']['names']
-            for vn in vec_names:
-                col_list += [vn]*3
-                col_list = [col_list, ['X', 'Y', 'Z']*len(vec_names)]
-
-                #Build vector DataFrame
-                vec_mask = data_params['vector']['mask']
-                df_vec = df[col_names[vec_mask]]
-                df_vec.columns = col_list
-                return df_vec
-'''
