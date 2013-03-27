@@ -9,14 +9,14 @@ from bson.objectid import ObjectId
 import tempfile
 import os
 
+import uuid
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 import json
 import pprint as pp
-
-import uuid
 
 g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
@@ -345,6 +345,8 @@ class Collection(object):
         """
         if isinstance(query, ObjectId):
             query = {'_id': query}
+        elif isinstance(query, str): # Convert from string to ObjectId:
+            query = ObjectId(query)
         if data_projection is True:
             return self._coll.find(query)
         else:
@@ -358,6 +360,8 @@ class Collection(object):
         """
         if isinstance(query, ObjectId):
             query = {'_id': query}
+        elif isinstance(query, str): # Convert from string to ObjectId:
+            query = ObjectId(query)
         if data_projection is True:
             return self._coll.find_one(query, {'raw_data':0, 'data_params':0 })
         else:
