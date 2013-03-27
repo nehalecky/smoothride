@@ -25,6 +25,7 @@ class FlightRecord(object):
 
     def __init__(self, filenames=None, name=None, notes=None, convert=False,
                  param_list=None):
+        self.data = None
         self.uuid = uuid.uuid1()
 
         if name is None:
@@ -33,32 +34,30 @@ class FlightRecord(object):
             self.name = name
         self.notes = notes
         if filenames is not None:
-            self.read_raw_data(filenames, convert=convert)
+            self.append(filenames, convert=convert)
+
+
+    def append(self, filenames, convert=False):
+        """
+        Append additional data to FlightRecord data set.
+        """
+        df_list = []
+        if self.data is not None:
+            df_list.append(self.data)
+
+        if isinstance(filenames, list):
+            for f in filenames:
+                df = _read_raw_data(f, convert=convert)
+                df_list.append(df)
+        else:
+            df = _read_raw_data(filenames, convert=convert)
+            df_list.append(df)
+        #Store in data attribute
+        self.data = pd.concat(df_list)
 
 
     def __str__(self):
         self.describe()
-
-
-    def read_raw_data(self, filenames, convert=False,
-                      param_list=None):
-        """
-        Reads raw data recording from files listed in filenames. Populates
-        FlightRecord object with `data` attribute, containing converted
-        data set.
-        """
-        df = pd.DataFrame()
-        #for filename in filenames:
-        df = pd.read_csv(filenames)
-        col_names = pd.Series(df.columns)
-        df.index = pd.to_datetime(df.time, errors='raise', utc=True)
-        df = df.drop(col_names[col_names.str.contains('[Tt]ime')], axis=1)
-
-        if(convert):
-            df = _convert_timestamp(df)
-        #df = pd.concat(df)
-
-        self.data = df
 
 
     def label_match(self, pat, tstart=None, tend=None, axis=1):
@@ -88,10 +87,10 @@ class FlightRecord(object):
         print '**Location**'
         loc_start = self.data[['lat','long']][:1000].mean().round(5).tolist()
         loc_end = self.data[['lat','long']][-1000:].mean().round(5).tolist()
-        print '- start:    ', loc_start, #\
-               #', ', g.reverse_geocode(*loc_start)
-        print '- end:      ', loc_end, #\
-               #', ', g.reverse_geocode(*loc_end)
+        print '- start:    ', loc_start, \
+               ', ', g.reverse_geocode(*loc_start)
+        print '- end:      ', loc_end, \
+               ', ', g.reverse_geocode(*loc_end)
         print '- distance: ', '<to be implemented>'
         print 'Data Params: ', self.data.columns.tolist()
 
@@ -195,6 +194,22 @@ class FlightRecord(object):
         ax.set_xlabel('Longitude')
 
 
+def _read_raw_data(filenames, convert=False, param_list=None):
+    """
+    Reads raw data recording from files listed in filenames. Populates
+    FlightRecord object with `data` attribute, containing converted
+    data set.
+    """
+    df = pd.DataFrame()
+    #for filename in filenames:
+    df = pd.read_csv(filenames)
+    col_names = pd.Series(df.columns)
+    df.index = pd.to_datetime(df.time, errors='raise', utc=True)
+    df = df.drop(col_names[col_names.str.contains('[Tt]ime')], axis=1)
+
+    if(convert):
+        df = _convert_timestamp(df)
+    return df
 
 
 def _df_to_h5binary(df):
@@ -328,6 +343,8 @@ class Collection(object):
         Search the collection for results matching query. Returns a projection
         of the record NOT containing `raw_data` or `data_params`.
         """
+        if isinstance(query, ObjectId):
+            query = {'_id': query}
         if data_projection is True:
             return self._coll.find(query)
         else:
@@ -339,6 +356,8 @@ class Collection(object):
         Search the collection for a single result  matching query. Returns a projection
         of the record NOT containing `raw_data` or `data_params`.
         """
+        if isinstance(query, ObjectId):
+            query = {'_id': query}
         if data_projection is True:
             return self._coll.find_one(query, {'raw_data':0, 'data_params':0 })
         else:
