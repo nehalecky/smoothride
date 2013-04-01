@@ -10,6 +10,7 @@ import tempfile
 import os
 
 import uuid
+import hashlib
 
 import numpy as np
 import pandas as pd
@@ -23,18 +24,37 @@ g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
 class FlightRecord(object):
 
-    def __init__(self, filenames=None, name=None, notes=None, convert=False,
+    def __init__(self, filenames=None, user_id=None,
+                 name=None, notes=None, tags=None, convert=False,
                  param_list=None):
-        self.data = None
-        self.uuid = uuid.uuid1()
 
-        if name is None:
-            self.name = 'SR_object_' + str(self.uuid)
-        else:
-            self.name = name
+        self.user_id = user_id
         self.notes = notes
+        self.tags = tags
+        self.data = None
         if filenames is not None:
             self.append(filenames, convert=convert)
+
+
+    def loc_start(self):
+        return self.data[['lat','long']][:1000].mean().round(5).tolist()
+
+
+    def loc_end(self):
+        return self.data[['lat','long']][-1000:].mean().round(5).tolist()
+
+
+    def time_start(self):
+        return self.data.index[0]
+
+
+    def time_end(self):
+        return self.data.index[-1]
+
+
+    def name(self):
+        loc_start = g.reverse_geocode(*self.loc_start())
+        return  self.user_id + ': ' + loc_start.formatted_address
 
 
     def append(self, filenames, convert=False):
@@ -75,22 +95,21 @@ class FlightRecord(object):
 
     def describe(self):
         print 'FlightRecord Object'
-        print 'Name: ', self.name
-        print 'UUID: ', self.uuid
-
+        print 'Name: ', self.name()
+        print 'Tags: ', self.tags
         if hasattr(self, 'notes'):
             print 'Notes: ', self.notes
         print '**Time**'
-        print '- start:    ', self.data.index[0]
-        print '- end:      ', self.data.index[-1]
-        print '- duration: ', self.data.index[-1]-self.data.index[0]
+        print '- start:    ', self.time_start()
+        print '- end:      ', self.time_end()
+        print '- duration: ', self.time_end() - self.time_start()
         print '**Location**'
-        loc_start = self.data[['lat','long']][:1000].mean().round(5).tolist()
-        loc_end = self.data[['lat','long']][-1000:].mean().round(5).tolist()
-        print '- start:    ', loc_start, \
-               ', ', g.reverse_geocode(*loc_start)
-        print '- end:      ', loc_end, \
-               ', ', g.reverse_geocode(*loc_end)
+        lsname = (g.reverse_geocode(*self.loc_start()).formatted_address
+                  .encode('utf8'))
+        print ('- start:    {0}, ({1})').format(self.loc_start(), lsname)
+        lename = (g.reverse_geocode(*self.loc_end()).formatted_address
+                   .encode('utf8'))
+        print ('- end:    {0}, ({1})').format(self.loc_end(), lename)
         print '- distance: ', '<to be implemented>'
         print 'Data Params: ', self.data.columns.tolist()
 
@@ -100,6 +119,7 @@ class FlightRecord(object):
         Casts FlightRecord object to Python dict to allow for database
         insertion.
         """
+
         record = {'user'       : str(self.uuid),
                   'title'      : self.name,
                   'notes'      : self.notes,
@@ -138,8 +158,8 @@ class FlightRecord(object):
         Persists FlightRecord object (flight record) to remote MongoDB.
         """
         hdf5_binary = _df_to_h5binary(self.data)
-        #CREATE dict record
         record = self.to_dict_record(raw_data = hdf5_binary)
+
 
         #Establish connection
         mongo_user = 'smoothrideclass'
@@ -224,7 +244,7 @@ def _df_to_h5binary(df):
     h5store = pd.HDFStore(tf.name, complevel=9, complib='blosc')
     h5store['data'] = df
     h5store.close()
-    fileh = open(tf.name, 'r')
+    fileh = open(tf.name, 'rb')
     hdf5_string = fileh.read()
     fileh.close()
     tf.close()
@@ -363,15 +383,15 @@ class Collection(object):
         elif isinstance(query, str): # Convert from string to ObjectId:
             query = ObjectId(query)
         if data_projection is True:
-            return self._coll.find_one(query, {'raw_data':0, 'data_params':0 })
-        else:
             return self._coll.find_one(query)
+        else:
+            return self._coll.find_one(query, {'raw_data':0, 'data_params':0 })
 
 
-    def find_all(self, query=None):
+    def list_all(self, query=None):
         """
-        Search the collection for ALL results matching query. (Will eventually
-        have to be chunked when db is large).
+        Search the collection and list ALL results matching query. (Will
+        eventually have to be chunked when db is large).
         """
         cursor = self.find(query)
         for post in cursor:
