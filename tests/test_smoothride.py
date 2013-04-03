@@ -19,22 +19,39 @@ def curpath():
     pth, _ = os.path.split(os.path.abspath(__file__))
     return pth
 
-_file1_path = os.path.join(curpath(), 'data_recording1.csv')
-_notes = """The sample recording data set was generated in a car trip
-in Reno, NV."""
+_file1_path = os.path.join(curpath(), 'data_record_small.csv')
+#_record = sr.FlightRecord(filenames=_file1_path,
+#                          notes='Sample small data for test case.',
+#                          set_freq=True)
+_df = pd.read_csv(_file1_path)
+_df.index = pd.to_datetime(_df.time, errors='raise', utc=True)
+_col_names = pd.Series(_df.columns)
+_df = _df.drop(_col_names[_col_names.str.contains('[Tt]ime')], axis=1)
 
-_record = sr.FlightRecord(filenames=_file1_path,
-                          name='Sample Data for test case.',
-                          notes=_notes,
-                          convert=True)
+class TestCoreMethods(unittest.TestCase):
+
+
+    def test_samp_rate_to_freq(self):
+        expected = '50L'
+        result = sr._samp_rate_to_freq(20)
+        self.assertEqual(result, expected)
+
+        expected = '2L'
+        result = sr._samp_rate_to_freq(500)
+        self.assertEqual(result, expected)
+
+
+    def test_detect_samp_rate(self):
+        expected = 20
+        result = sr._detect_samp_rate(_df)
+        self.assertEqual(result, expected)
 
 
 class TestFlightRecord(unittest.TestCase):
     def setUp(self):
         self.dirpath = curpath()
         self.csv1 = os.path.join(self.dirpath, 'data_recording.csv')
-
-
+    """
     def test_read_raw_data(self):
         flight = _record
         cols = ['lat', 'long', 'alt', 'speed', 'course',
@@ -49,7 +66,7 @@ class TestFlightRecord(unittest.TestCase):
         self.assertEqual(result, expected)
 
         self.assertEqual(flight.data.index.inferred_freq, '50L')
-
+    """
 
     #def test_to_dict():
     #    pass
