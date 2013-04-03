@@ -24,16 +24,28 @@ g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
 class FlightRecord(object):
 
-    def __init__(self, filenames=None, user_id=None,
-                 name=None, notes=None, tags=None, convert=False,
-                 param_list=None):
+    def __init__(self, filenames=None, user_id=None, title=None, notes=None,
+                 tags=None, make_seq=False, set_freq=False,
+                 samp_rate=None, param_list=None):
+        """
+        Initialize FlightRecord object with given paramters, including:
 
+        set_freq : bool, default False
+            If True, resamples read data time series to a set frequency. This is
+            useful in dealing with the slowdowns in sensor recording rate that
+            can occur on mobile devices when sampling at sub second resolution.
+        """
+        self._samp_rate = samp_rate
         self.user_id = user_id
         self.notes = notes
         self.tags = tags
         self.data = None
         if filenames is not None:
-            self.append(filenames, convert=convert)
+            self.append(filenames, make_seq=make_seq, set_freq=set_freq)
+
+
+    def _freq(self):
+        return _samp_rate_to_freq(self._samp_rate)
 
 
     def loc_start(self):
@@ -52,14 +64,14 @@ class FlightRecord(object):
         return self.data.index[-1]
 
 
-    def name(self):
+    def title(self):
         loc_start = g.reverse_geocode(*self.loc_start())
         return  self.user_id + ': ' + loc_start.formatted_address
 
 
-    def append(self, filenames, convert=False):
+    def append(self, filenames, make_seq=False, set_freq=False):
         """
-        Append additional data to FlightRecord data set.
+        Append new data (or additional data) to FlightRecord data set.
         """
         df_list = []
         if self.data is not None:
@@ -67,13 +79,17 @@ class FlightRecord(object):
 
         if isinstance(filenames, list):
             for f in filenames:
-                df = _read_raw_data(f, convert=convert)
+                df = _read_raw_data(f, make_seq=make_seq, set_freq=set_freq,
+                                    samp_rate=self._samp_rate)
                 df_list.append(df)
+            df = pd.concat(df_list)
+            df = df.resample(self._freq())
+
         else:
-            df = _read_raw_data(filenames, convert=convert)
-            df_list.append(df)
+            df = _read_raw_data(filenames, make_seq=make_seq, set_freq=set_freq,
+                                samp_rate=self._samp_rate)
         #Store in data attribute
-        self.data = pd.concat(df_list)
+        self.data = df
 
 
     def __str__(self):
@@ -95,7 +111,7 @@ class FlightRecord(object):
 
     def describe(self):
         print 'FlightRecord Object'
-        print 'Name: ', self.name()
+        print 'Title: ', self.title()
         print 'Tags: ', self.tags
         if hasattr(self, 'notes'):
             print 'Notes: ', self.notes
@@ -120,8 +136,8 @@ class FlightRecord(object):
         insertion.
         """
 
-        record = {'user'       : str(self.uuid),
-                  'title'      : self.name,
+        record = {'user'       : self.user_id,
+                  'title'      : self.title(),
                   'notes'      : self.notes,
                   'time_start' : self.data.index[0],
                   'time_end'   : self.data.index[-1],
@@ -129,7 +145,7 @@ class FlightRecord(object):
                                  .round(5).tolist()),
                   'loc_end'    : (self.data[['lat','long']][:1000].mean()
                                  .round(5).tolist()),
-                  'tags'       : ['test', 'car'],
+                  'tags'       : self.tags,
                   'data_params': self.data.columns.tolist(),
                   'raw_data'   : raw_data}
         return record
@@ -167,7 +183,7 @@ class FlightRecord(object):
         db = Database(mongo_user, mongo_pass)
 
         #Connect to flights collection and record
-        db_collection = 'flights'
+        db_collection = 'recordings'
         record_id = db[db_collection].insert(record)
         self._id = record_id
         return record_id
@@ -214,21 +230,63 @@ class FlightRecord(object):
         ax.set_xlabel('Longitude')
 
 
-def _read_raw_data(filenames, convert=False, param_list=None):
+def _read_raw_data(filename, make_seq=False, set_freq=False, samp_rate=None,
+                   param_list=None):
     """
-    Reads raw data recording from files listed in filenames. Populates
-    FlightRecord object with `data` attribute, containing converted
-    data set.
+    Reads raw data recording from files listed in filenames and converts
+    to pandas DataFrame. Allows for conversion of timestamp data to set
+    frequency.
     """
-    df = pd.DataFrame()
-    #for filename in filenames:
-    df = pd.read_csv(filenames)
+    df = pd.read_csv(filename)
     col_names = pd.Series(df.columns)
     df.index = pd.to_datetime(df.time, errors='raise', utc=True)
     df = df.drop(col_names[col_names.str.contains('[Tt]ime')], axis=1)
 
-    if(convert):
-        df = _convert_timestamp(df)
+    #If sample rate is not defined, calculate average sampling rate
+    #(num samples per second) directly from the DataFrame and use it.
+    if samp_rate is None:
+        samp_rate = _detect_samp_rate(df)
+    mean_freq = _samp_rate_to_freq(samp_rate)
+    df.index = df.index.tz_localize('utc')
+    if(make_seq):
+        df = _sequentialize(df, samp_rate, mean_freq)
+    if(set_freq):
+        return df.resample(mean_freq, fill_method='ffill')
+    return df
+
+
+def _sequentialize(df, samp_rate, mean_freq):
+    """
+    Sequentialize the timestamp information in raw sensor feed to contain sub
+    second timestamp resolution (not currently contained in data output).
+    """
+    a_sec = pd.tseries.offsets.DateOffset(seconds = 1)
+    start = df.index[0] + a_sec
+    end = df.index[-1] - a_sec
+    df = df[start:end]
+
+    #Loop through all single second intervals within time series
+    df['timestamp_mod'] = 1
+    for dt in df.index.unique():
+        num_samples_in_sec = len(df.ix[dt])
+        #Case where number of samples within this second interval is equal to
+        #the requested sensor sampling rate
+        if(num_samples_in_sec == samp_rate):
+            dr = pd.date_range(dt, periods=samp_rate, freq=mean_freq)
+            df.timestamp_mod[dt] = dr
+        #Else, case when number of samples within this second interval is NOT
+        #equal to requested sensor sampling rate.
+        else:
+            #Calculate abnormal frequency, in microseconds, of samples within
+            #this second interval
+            mod_freq = str(int(1.0*1000000.0/num_samples_in_sec)) + 'U'
+            dr = pd.date_range(dt, periods=num_samples_in_sec, freq=mod_freq)
+            df.timestamp_mod[dt] = dr
+
+    df.index = pd.to_datetime(df.timestamp_mod)
+    df.index.name = 'time'
+    df = df.drop(['timestamp_mod'], axis=1)
+
     return df
 
 
@@ -249,6 +307,7 @@ def _samp_rate_to_freq(samp_rate):
     in milliseconds.
     """
     return str(int(1/float(samp_rate) * 1000)) + 'L'
+
 
 def _df_to_h5binary(df):
     """
@@ -302,32 +361,6 @@ def _analyze_params(param_list):
                    'scalar': {'mask': scalar_mask,
                               'names': scalar_names}}
     return data_params
-
-
-def _convert_timestamp(df):
-    start = df.index[0] + pd.tseries.offsets.DateOffset(seconds = 1)
-    end = df.index[-1] - pd.tseries.offsets.DateOffset(seconds = 1)
-    df = df[start:end]
-
-    #Create timestamp data with sub second resolution
-    df['timestamp_mod'] = 1
-    for dt in df.index.unique():
-        l = len(df.ix[dt])
-        if(l == 20):
-            dr = pd.date_range(dt, periods=20, freq='50L')
-            df.timestamp_mod[dt] = dr
-        else:
-            start = dt
-            f = str(int(1.0*1000000.0/l)) + 'U'
-            dr = pd.date_range(start, periods=l, freq=f)
-            df.timestamp_mod[dt] = dr
-
-    df.index = pd.to_datetime(df.timestamp_mod)
-    df.index.name = 'time'
-    df.index = df.index.tz_localize('UTC')
-    df = df.drop(['timestamp_mod'], axis=1)
-
-    return df.resample('50L', fill_method='ffill')
 
 
 class Database(object):
