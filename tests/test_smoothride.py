@@ -47,6 +47,21 @@ class TestCoreMethods(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
+    def test_sequentialize(self):
+        df = sr._sequentialize(_df, 20, '50L')
+        result = str(df.index[-1] - df.index[0])
+        expected = '0:00:23.950000'
+        self.assertEqual(result, expected)
+
+
+    def test_read_raw_data(self):
+        df = sr._read_raw_data(_file1_path)
+        self.assertEqual(df.index.freq, None)
+        result = (df.index[-1] - df.index[0]).total_seconds()
+        expected = 25.0
+        self.assertEqual(result, expected)
+
+
 class TestFlightRecord(unittest.TestCase):
     def setUp(self):
         self.dirpath = curpath()
