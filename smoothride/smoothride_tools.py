@@ -232,6 +232,24 @@ def _read_raw_data(filenames, convert=False, param_list=None):
     return df
 
 
+def _detect_samp_rate(df):
+    """
+    Calculates mean sampling rate in df directly from DatetimeIndex.
+    """
+    if df.index.freq is None:
+        num_samples_per_sec = [len(df.ix[dt]) for dt in df.index.unique()]
+        return  int(np.ceil(np.mean(num_samples_per_sec)))
+    else:
+        raise
+
+
+def _samp_rate_to_freq(samp_rate):
+    """
+    Converts sampling rate (number of samples per second) to a pandas frequency
+    in milliseconds.
+    """
+    return str(int(1/float(samp_rate) * 1000)) + 'L'
+
 def _df_to_h5binary(df):
     """
     Converts DataFrame to HDF5 Binary
