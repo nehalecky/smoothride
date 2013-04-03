@@ -24,7 +24,7 @@ g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
 class FlightRecord(object):
 
-    def __init__(self, filenames=None, user_id=None, title=None, notes=None,
+    def __init__(self, filenames=None, user=None, title=None, notes=None,
                  tags=None, make_seq=False, set_freq=False,
                  samp_rate=None, param_list=None):
         """
@@ -36,7 +36,7 @@ class FlightRecord(object):
             can occur on mobile devices when sampling at sub second resolution.
         """
         self._samp_rate = samp_rate
-        self.user_id = user_id
+        self.user = user
         self.notes = notes
         self.tags = tags
         self.data = None
@@ -65,8 +65,9 @@ class FlightRecord(object):
 
 
     def title(self):
-        loc_start = g.reverse_geocode(*self.loc_start())
-        return  self.user_id + ': ' + loc_start.formatted_address
+        loc_start = g.reverse_geocode(*self.loc_start()).formatted_address
+        title = '{0}: {1} ({2})'
+        return title.format(self.user, str(self.time_start()), loc_start)
 
 
     def append(self, filenames, make_seq=False, set_freq=False):
@@ -136,28 +137,24 @@ class FlightRecord(object):
         insertion.
         """
 
-        record = {'user'       : self.user_id,
-                  'title'      : self.title(),
+        record = {'user'       : self.user,
                   'notes'      : self.notes,
                   'time_start' : self.data.index[0],
                   'time_end'   : self.data.index[-1],
-                  'loc_start'  : (self.data[['lat','long']][:1000].mean()
-                                 .round(5).tolist()),
-                  'loc_end'    : (self.data[['lat','long']][:1000].mean()
-                                 .round(5).tolist()),
+                  'loc_start'  : self.loc_start(),
+                  'loc_end'    : self.loc_end(),
                   'tags'       : self.tags,
                   'data_params': self.data.columns.tolist(),
                   'raw_data'   : raw_data}
         return record
 
 
-    def from_dict_record(self, record_dict, raw_data=None):
+    def from_dict_record(self, record_dict):
         """
         Casts Python dict (from database query result) to FlightRecord object.
         """
         self.data = _df_from_h5binary(record_dict['raw_data'])
         self.user = record_dict['user']
-        self.user = record_dict['title']
         self.notes = record_dict['notes']
         self.tags = record_dict['tags']
 
