@@ -25,7 +25,7 @@ g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 class FlightRecord(object):
 
     def __init__(self, filenames=None, user=None, title=None, notes=None,
-                 tags=None, make_seq=False, set_freq=False,
+                 tags=None, aircraft=None, make_seq=False, set_freq=False,
                  samp_rate=None, param_list=None):
         """
         Initialize FlightRecord object with given paramters, including:
@@ -39,6 +39,7 @@ class FlightRecord(object):
         self.user = user
         self.notes = notes
         self.tags = tags
+        self.aircraft = aircraft
         self.data = None
         if filenames is not None:
             self.append(filenames, make_seq=make_seq, set_freq=set_freq)
@@ -116,6 +117,7 @@ class FlightRecord(object):
         print 'Tags: ', self.tags
         if hasattr(self, 'notes'):
             print 'Notes: ', self.notes
+        print '**Aircraft**:', self.aircraft
         print '**Time**'
         print '- start:    ', self.time_start()
         print '- end:      ', self.time_end()
@@ -127,7 +129,9 @@ class FlightRecord(object):
         lename = (g.reverse_geocode(*self.loc_end()).formatted_address
                    .encode('utf8'))
         print ('- end:    {0}, ({1})').format(self.loc_end(), lename)
-        print '- distance: ', '<to be implemented>'
+        d = _distance_between_coords(self.loc_start(), self.loc_end())
+        print ('- distance, start to end (km): %.2f' % d)
+        print '- distance, total        (km): <to be implemented>'
         print 'Data Params: ', self.data.columns.tolist()
 
 
@@ -459,3 +463,20 @@ class Collection(object):
 
         #Convert to FlightRecord Object
 
+#Statistics---------------------------------------------------------------------
+
+def _distance_between_coords(coord1, coord2):
+    """
+    Calculate the great circle distance (km) between two coordinates on the
+    earth (specified in decimal degrees)
+    """
+    # convert decimal degrees to radians
+    lat1, lon1 = map(np.radians, coord1)
+    lat2, lon2 = map(np.radians, coord2)
+    # haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    km = 6367 * c
+    return np.round(km, 2)
