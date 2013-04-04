@@ -65,6 +65,10 @@ class FlightRecord(object):
                              'filename or dict.')
 
 
+    def __getitem__(self, key):
+        return self.data[key]
+
+
     def _freq(self):
         return _samp_rate_to_freq(self._samp_rate)
 
@@ -86,8 +90,11 @@ class FlightRecord(object):
 
 
     def title(self):
-        loc_start = g.reverse_geocode(*self.loc_start()).formatted_address
-        title = '{0}: {1} ({2})'
+        try:
+            loc_start = g.reverse_geocode(*self.loc_start()).formatted_address
+        except:
+            loc_start = '<Reverse geocode failed.>'
+        title = u'{0}: {1} ({2})'
         return title.format(self.user, str(self.time_start()), loc_start)
 
 
@@ -143,11 +150,17 @@ class FlightRecord(object):
         print '- end:      ', self.time_end()
         print '- duration: ', self.time_end() - self.time_start()
         print '**Location**'
-        lsname = (g.reverse_geocode(*self.loc_start()).formatted_address
-                  .encode('utf8'))
+        try:
+            lsname = (g.reverse_geocode(*self.loc_start()).formatted_address
+                      .encode('utf8'))
+        except:
+            lsname = '<Reverse geocode lookup failed.>'
         print ('- start:    {0}, ({1})').format(self.loc_start(), lsname)
-        lename = (g.reverse_geocode(*self.loc_end()).formatted_address
-                   .encode('utf8'))
+        try:
+            lename = (g.reverse_geocode(*self.loc_end()).formatted_address
+                      .encode('utf8'))
+        except:
+            lename = '<Reverse geocode lookup failed.>'
         print ('- end:    {0}, ({1})').format(self.loc_end(), lename)
         d = _distance_between_coords(self.loc_start(), self.loc_end())
         print ('- distance, start to end (km): %.2f' % d)
