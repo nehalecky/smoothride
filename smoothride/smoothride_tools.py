@@ -24,25 +24,45 @@ g = Geocoder('AIzaSyDvPNDp_QiRGaBPXxaYuY1ska9-uuger8s') #Google Maps API
 
 class FlightRecord(object):
 
-    def __init__(self, filenames=None, user=None, title=None, notes=None,
+    def __init__(self, data_source=None, user=None, title=None, notes=None,
                  tags=None, aircraft=None, make_seq=False, set_freq=False,
                  samp_rate=None, param_list=None):
         """
-        Initialize FlightRecord object with given paramters, including:
+        A SmoothRide flight recording data structure, containing methods for
+        creation, insertion, and analysis/ manipulation of SmoothRide flight
+        data.
 
+        Parameters
+        ----------
+        data_source : str or dict, default None
+            The data source containing SR flight recording data, can be a
+            filename (str) or dict containing all attributes for FlightRecord
+            data structure.
         set_freq : bool, default False
             If True, resamples read data time series to a set frequency. This is
             useful in dealing with the slowdowns in sensor recording rate that
             can occur on mobile devices when sampling at sub second resolution.
         """
-        self._samp_rate = samp_rate
-        self.user = user
-        self.notes = notes
-        self.tags = tags
-        self.aircraft = aircraft
-        self.data = None
-        if filenames is not None:
-            self.append(filenames, make_seq=make_seq, set_freq=set_freq)
+        #Load a file
+        if isinstance(data_source, str):
+            self._samp_rate = samp_rate
+            self.user = user
+            self.notes = notes
+            self.tags = tags
+            self.aircraft = aircraft
+            self.data = None
+            self._id = None
+            if data_source is not None:
+                self.append(filenames=data_source, make_seq=make_seq,
+                            set_freq=set_freq)
+        elif isinstance(data_source, dict):
+            try:
+                self.from_dict_record(data_source)
+            except ValueError:
+                print 'Dict not properly formatted for object creation.'
+        else:
+            raise ValueError('Not a correct data_source type. Please use a csv '
+                             'filename or dict.')
 
 
     def _freq(self):
@@ -112,7 +132,7 @@ class FlightRecord(object):
 
 
     def describe(self):
-        print 'FlightRecord Object'
+        print 'FlightRecord Object: ', self._id
         print 'Title: ', self.title()
         print 'Tags: ', self.tags
         if hasattr(self, 'notes'):
@@ -143,6 +163,7 @@ class FlightRecord(object):
 
         record = {'user'       : self.user,
                   'notes'      : self.notes,
+                  'aircraft'   : self.aircraft,
                   'time_start' : self.data.index[0],
                   'time_end'   : self.data.index[-1],
                   'loc_start'  : self.loc_start(),
@@ -158,16 +179,11 @@ class FlightRecord(object):
         Casts Python dict (from database query result) to FlightRecord object.
         """
         self.data = _df_from_h5binary(record_dict['raw_data'])
+        self._id = record_dict['_id']
         self.user = record_dict['user']
         self.notes = record_dict['notes']
+        self.aircraft = record_dict['aircraft']
         self.tags = record_dict['tags']
-
-
-    def load_rec(self, record):
-        """
-        Loads record dict into FlightRecord object
-        """
-        raise NotImplementedError, "To be implemented shortly...."
 
 
     def insert_rec(self):
@@ -465,9 +481,9 @@ class Collection(object):
         if isinstance(record_id, str): # Convert from string to ObjectId:
             record_id = ObjectId(record_id)
         #Retrieve record
-        return self._coll.find_one({'_id': record_id})
-
+        dict_from_db =  self._coll.find_one({'_id': record_id})
         #Convert to FlightRecord Object
+        return FlightRecord(dict_from_db)
 
 #Statistics---------------------------------------------------------------------
 
