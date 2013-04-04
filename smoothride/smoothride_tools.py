@@ -268,11 +268,12 @@ def _sequentialize(df, samp_rate, mean_freq):
 
     #Loop through all single second intervals within time series
     df['timestamp_mod'] = 1
-    for dt in df.index.unique():
-        num_samples_in_sec = len(df.ix[dt])
+    num_sps = _num_samples_per_sec(df)
+    unique_secs = df.index.unique()
+    for dt, num_samples in zip(unique_secs, num_sps):
         #Case where number of samples within this second interval is equal to
         #the requested sensor sampling rate
-        if(num_samples_in_sec == samp_rate):
+        if(num_samples == samp_rate):
             dr = pd.date_range(dt, periods=samp_rate, freq=mean_freq)
             df.timestamp_mod[dt] = dr
         #Else, case when number of samples within this second interval is NOT
@@ -280,8 +281,8 @@ def _sequentialize(df, samp_rate, mean_freq):
         else:
             #Calculate abnormal frequency, in microseconds, of samples within
             #this second interval
-            mod_freq = str(int(1.0*1000000.0/num_samples_in_sec)) + 'U'
-            dr = pd.date_range(dt, periods=num_samples_in_sec, freq=mod_freq)
+            mod_freq = str(int(1.0*1000000.0/num_samples)) + 'U'
+            dr = pd.date_range(dt, periods=num_samples, freq=mod_freq)
             df.timestamp_mod[dt] = dr
 
     df.index = pd.to_datetime(df.timestamp_mod)
@@ -296,10 +297,15 @@ def _detect_samp_rate(df):
     Calculates mean sampling rate in df directly from DatetimeIndex.
     """
     if df.index.freq is None:
-        num_samples_per_sec = [len(df.ix[dt]) for dt in df.index.unique()]
-        return  int(np.ceil(np.mean(num_samples_per_sec)))
+        num_sps = _num_samples_per_sec(df)
+        pct_max = num_sps.value_counts() / float(num_sps.count())
+        return pct_max.index[0]
     else:
         raise
+
+
+def _num_samples_per_sec(df):
+    return pd.Series(df.index).value_counts().sort_index()
 
 
 def _samp_rate_to_freq(samp_rate):
